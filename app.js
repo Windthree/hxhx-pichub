@@ -174,7 +174,7 @@ const app = {
         app.renderView();
     },
 
-    renderView: () => {
+   renderView: () => {
         const container = document.getElementById('gallery-container');
         container.innerHTML = '';
         app.selectedKeys.clear();
@@ -187,16 +187,29 @@ const app = {
 
         app.files.forEach(file => {
             if (!file.key.startsWith(fullPrefix)) return;
-            const relativePart = file.key.substring(fullPrefix.length);
+            
+            // 获取相对路径
+            let relativePart = file.key.substring(fullPrefix.length);
+
+            // 【核心修复代码】如果相对路径是以 / 开头（说明出现了双斜杠 //），去掉它
+            // 这样 "test//a.jpg" 变成 "/a.jpg" -> 再变成 "a.jpg"
+            while(relativePart.startsWith('/')) {
+                relativePart = relativePart.substring(1);
+            }
+
             const slashIndex = relativePart.indexOf('/');
             
             if (slashIndex > -1) {
-                subFolders.add(relativePart.substring(0, slashIndex));
+                // 是子文件夹
+                const folderName = relativePart.substring(0, slashIndex);
+                if(folderName) subFolders.add(folderName); // 确保不是空名
             } else {
+                // 是文件
                 if (relativePart.length > 0) subFiles.push(file);
             }
         });
 
+        // 渲染文件夹
         Array.from(subFolders).sort().forEach(folder => {
             const col = document.createElement('div');
             col.className = 'col-6 col-md-4 col-lg-3';
@@ -211,6 +224,7 @@ const app = {
             container.appendChild(col);
         });
 
+        // 渲染文件
         subFiles.forEach(file => {
             const isVideo = file.key.toLowerCase().endsWith('.mp4');
             const name = file.key.split('/').pop();
