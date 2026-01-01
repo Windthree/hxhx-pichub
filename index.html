@@ -95,16 +95,41 @@
                         <input type="hidden" id="upload-folder-val">
                     </div>
 
+<!-- 压缩模式选择 -->
                     <div class="mb-3">
-                        <label class="form-label">压缩模式</label>
+                        <label class="form-label">处理模式</label>
                         <div class="btn-group w-100" role="group">
+                            <!-- 模式1: WebP -->
                             <input type="radio" class="btn-check" name="compressMode" id="mode1" value="chat" checked>
-                            <label class="btn btn-outline-primary" for="mode1">WebP (推荐)</label>
+                            <label class="btn btn-outline-primary" for="mode1">WebP (省流)</label>
 
+                            <!-- 模式2: PNG (新增滑块控制) -->
+                            <input type="radio" class="btn-check" name="compressMode" id="mode2" value="png">
+                            <label class="btn btn-outline-primary" for="mode2">PNG (缩放)</label>
+
+                            <!-- 模式3: 原图 -->
                             <input type="radio" class="btn-check" name="compressMode" id="mode3" value="hd">
-                            <label class="btn btn-outline-primary" for="mode3">原图/GIF/视频</label>
+                            <label class="btn btn-outline-primary" for="mode3">原图/视频</label>
                         </div>
-                        <div class="form-text text-muted mt-1 small" id="compress-desc">适合图片，自动转WebP。视频/GIF请选“原图”模式。</div>
+                        
+                        <!-- 动态提示文字 -->
+                        <div class="form-text text-muted mt-2 small" id="compress-desc">
+                            ✨ 默认推荐：自动转 WebP 格式，体积小速度快。
+                        </div>
+
+                        <!-- 【新增】PNG 专用滑块控制区 (默认隐藏) -->
+                        <div id="png-settings-panel" class="mt-2 p-3 bg-light border rounded d-none">
+                            <label class="form-label d-flex justify-content-between">
+                                <span class="small fw-bold">目标最大宽度</span>
+                                <span class="badge bg-primary" id="png-width-display">150 px</span>
+                            </label>
+                            <input type="range" class="form-range" id="png-width-slider" min="50" max="1920" step="10" value="150">
+                            <div class="d-flex justify-content-between text-muted" style="font-size: 10px;">
+                                <span>50px (头像)</span>
+                                <span>1920px (全屏)</span>
+                            </div>
+                            <div class="form-text small mt-1">⚠️ 保持透明背景，等比例缩放。</div>
+                        </div>
                     </div>
 
                     <div class="mb-3">

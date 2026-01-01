@@ -6,20 +6,38 @@ const app = {
     currentPath: '', // 当前浏览的相对路径，例如 "travel/"，根目录为 ""
     selectedKeys: new Set(),
 
-    init: () => {
+init: () => {
         if (app.passcode) {
-            app.login(true); // 自动登录尝试
+            app.login(true);
         } else {
             document.getElementById('login-interface').style.display = 'block';
         }
         
-        // 监听压缩模式切换
+        // --- 压缩模式切换监听 ---
+        const desc = document.getElementById('compress-desc');
+        const pngPanel = document.getElementById('png-settings-panel');
+        
         document.querySelectorAll('input[name="compressMode"]').forEach(radio => {
             radio.addEventListener('change', (e) => {
-                const desc = document.getElementById('compress-desc');
-                if(e.target.value === 'chat') desc.innerText = '✨ 图片压缩为WebP，省流且快。视频/GIF 会自动跳过压缩。';
-                if(e.target.value === 'hd') desc.innerText = '📸 保持原始文件上传。⚠️ 必须 < 4.5MB。';
+                const val = e.target.value;
+                // 控制滑块面板显示
+                if (val === 'png') {
+                    pngPanel.classList.remove('d-none');
+                    desc.innerText = '🔍 PNG模式：保持背景透明，请下方调节尺寸。';
+                } else {
+                    pngPanel.classList.add('d-none');
+                }
+
+                if(val === 'chat') desc.innerText = '✨ WebP模式：适合大多数图片，体积极小。';
+                if(val === 'hd') desc.innerText = '📸 原图模式：不做任何处理。视频/GIF 必须选此项 (限制 4.5MB)。';
             });
+        });
+
+        // --- 滑块数值实时显示 ---
+        const slider = document.getElementById('png-width-slider');
+        const display = document.getElementById('png-width-display');
+        slider.addEventListener('input', (e) => {
+            display.innerText = e.target.value + ' px';
         });
     },
 
@@ -305,14 +323,16 @@ const app = {
         }
     },
 
-    startUpload: async () => {
+   startUpload: async () => {
         const files = document.getElementById('file-input').files;
         if (files.length === 0) return alert('请选择文件');
 
-        // 获取当前进入的路径作为上传路径
-        const currentFolder = document.getElementById('upload-folder-val').value; // e.g. "travel/"
+        const currentFolder = document.getElementById('upload-folder-val').value;
         const mode = document.querySelector('input[name="compressMode"]:checked').value;
         
+        // 获取滑块的值
+        const pngMaxWidth = parseInt(document.getElementById('png-width-slider').value);
+
         const progressContainer = document.getElementById('upload-progress-container');
         const progressBar = document.getElementById('upload-bar');
         const currentFileSpan = document.getElementById('current-upload-file');
@@ -324,9 +344,8 @@ const app = {
             currentFileSpan.innerText = `${file.name}`;
             progressBar.style.width = `${((i)/files.length)*100}%`;
 
-            // 检查大小 (4.5MB 限制)
             if (file.size > 4.5 * 1024 * 1024) {
-                alert(`文件 ${file.name} 超过 4.5MB，Netlify 会拒绝上传。跳过此文件。`);
+                alert(`文件 ${file.name} 超过 4.5MB，已跳过。`);
                 continue;
             }
 
@@ -336,26 +355,38 @@ const app = {
                 const isVideo = file.type.startsWith('video');
                 const isGif = file.type === 'image/gif';
 
-                // 只有普通图片才压缩
-                if (!isVideo && !isGif && mode === 'chat') {
-                    processedFile = await imageCompression(file, {
-                        maxSizeMB: 1,
-                        maxWidthOrHeight: 1200,
-                        useWebWorker: true,
-                        fileType: 'image/webp'
-                    });
-                    filename = filename.replace(/\.[^/.]+$/, "") + ".webp";
+                // --- 核心处理逻辑 ---
+                if (!isVideo && !isGif) {
+                    // 1. WebP 模式
+                    if (mode === 'chat') {
+                        processedFile = await imageCompression(file, {
+                            maxSizeMB: 1,
+                            maxWidthOrHeight: 1200,
+                            useWebWorker: true,
+                            fileType: 'image/webp'
+                        });
+                        filename = filename.replace(/\.[^/.]+$/, "") + ".webp";
+                    } 
+                    // 2. PNG 自定义缩放模式 (新增)
+                    else if (mode === 'png') {
+                        console.log('正在转换PNG, 目标宽度:', pngMaxWidth);
+                        processedFile = await imageCompression(file, {
+                            maxWidthOrHeight: pngMaxWidth, // 使用滑块的值
+                            useWebWorker: true,
+                            fileType: 'image/png', // 强制保持 PNG (含透明)
+                            initialQuality: 0.9    // 保持较高质量
+                        });
+                        // 确保扩展名是 png
+                        filename = filename.replace(/\.[^/.]+$/, "") + ".png";
+                    }
                 }
+                // mode === 'hd' 则不处理，直接上传原文件
 
                 const base64Data = await app.fileToBase64(processedFile);
 
-                // 发送 folder 参数 (注意：后端是简单的 userRoot + folder + filename)
-                // 这里的 folder 应该是相对路径，去掉 userRoot
-                // 我们的 currentFolder 已经是相对的了（如 "travel/"）
-                
                 await app.request('upload', 'POST', {
                     filename: filename,
-                    folder: currentFolder, // 传入相对路径
+                    folder: currentFolder,
                     fileData: base64Data,
                     contentType: processedFile.type
                 });
@@ -370,7 +401,7 @@ const app = {
         setTimeout(() => {
             bootstrap.Modal.getInstance(document.getElementById('uploadModal')).hide();
             progressContainer.classList.add('d-none');
-            app.loadGallery(); // 重新加载列表
+            app.loadGallery();
         }, 800);
     },
 
