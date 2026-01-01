@@ -1,0 +1,10 @@
+{
+  "name": "r2-netlify-gallery",
+  "version": "1.0.0",
+  "description": "Simple R2 Image Hosting",
+  "main": "index.js",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.400.0",
+    "busboy": "^1.6.0"
+  }
+}

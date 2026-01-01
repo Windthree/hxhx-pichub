@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>私有图床管理</title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- 图标库 -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
+    <style>
+        .gallery-img { width: 100%; height: 150px; object-fit: cover; cursor: pointer; border-radius: 8px; }
+        .gallery-card { transition: transform 0.2s; position: relative; }
+        .gallery-card:hover { transform: translateY(-5px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        .selected-card { border: 3px solid #0d6efd; }
+        .auth-container { max-width: 400px; margin: 100px auto; }
+        #app-interface { display: none; }
+        .stats-box { background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+    </style>
+</head>
+<body class="bg-light">
+
+    <!-- 登录界面 -->
+    <div id="login-interface" class="container auth-container">
+        <div class="card shadow">
+            <div class="card-body p-5">
+                <h3 class="text-center mb-4">🔐 身份验证</h3>
+                <div class="mb-3">
+                    <input type="password" id="passcode-input" class="form-control form-control-lg" placeholder="请输入访问口令">
+                </div>
+                <button onclick="app.login()" class="btn btn-primary w-100 btn-lg">进入系统</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 主界面 -->
+    <div id="app-interface" class="container py-4">
+        <!-- 头部导航 -->
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h4>📸 图床管理 <span class="badge bg-secondary fs-6" id="user-badge"></span></h4>
+            <button onclick="app.logout()" class="btn btn-outline-danger btn-sm">退出</button>
+        </div>
+
+        <!-- 统计面板 -->
+        <div class="row mb-4">
+            <div class="col-md-12">
+                <div class="stats-box d-flex justify-content-between align-items-center">
+                    <div>
+                        <strong>存储用量：</strong> <span id="storage-used">计算中...</span>
+                    </div>
+                    <div>
+                        <strong>文件数：</strong> <span id="file-count">0</span>
+                    </div>
+                    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#uploadModal">
+                        <i class="bi bi-cloud-upload"></i> 上传图片
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 工具栏 -->
+        <div class="d-flex gap-2 mb-3">
+            <button class="btn btn-outline-secondary btn-sm" onclick="app.loadGallery()">刷新列表</button>
+            <button class="btn btn-outline-primary btn-sm" onclick="app.copySelectedLinks()" id="btn-copy" disabled>复制链接</button>
+            <button class="btn btn-outline-danger btn-sm" onclick="app.deleteSelected()" id="btn-delete" disabled>删除选中</button>
+            <div class="ms-auto">
+                <select id="filter-folder" class="form-select form-select-sm" onchange="app.filterGallery()">
+                    <option value="all">所有文件夹</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- 图片画廊 -->
+        <div class="row g-3" id="gallery-container">
+            <!-- 图片将在这里渲染 -->
+        </div>
+    </div>
+
+    <!-- 上传模态框 -->
+    <div class="modal fade" id="uploadModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title">上传图片</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <!-- 压缩模式选择 -->
+                    <div class="mb-3">
+                        <label class="form-label">压缩模式</label>
+                        <div class="btn-group w-100" role="group">
+                            <input type="radio" class="btn-check" name="compressMode" id="mode1" value="chat" checked>
+                            <label class="btn btn-outline-primary" for="mode1">聊天卡 (WebP)</label>
+
+                            <input type="radio" class="btn-check" name="compressMode" id="mode2" value="icon">
+                            <label class="btn btn-outline-primary" for="mode2">小图标 (PNG)</label>
+
+                            <input type="radio" class="btn-check" name="compressMode" id="mode3" value="hd">
+                            <label class="btn btn-outline-primary" for="mode3">原图 (HD)</label>
+                        </div>
+                        <div class="form-text text-muted mt-1" id="compress-desc">WebP格式，宽1200px，质量0.75</div>
+                    </div>
+
+                    <!-- 目录选择 -->
+                    <div class="mb-3">
+                        <label class="form-label">目标文件夹</label>
+                        <div class="input-group">
+                            <select class="form-select" id="upload-folder-select">
+                                <option value="">根目录</option>
+                            </select>
+                            <button class="btn btn-outline-secondary" type="button" onclick="app.createNewFolder()">新建</button>
+                        </div>
+                    </div>
+
+                    <!-- 文件选择 -->
+                    <div class="mb-3">
+                        <input class="form-control" type="file" id="file-input" multiple accept="image/*">
+                    </div>
+
+                    <!-- 进度条 -->
+                    <div id="upload-progress-container" class="d-none">
+                        <p class="mb-1">正在处理并上传: <span id="current-upload-file"></span></p>
+                        <div class="progress">
+                            <div id="upload-bar" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary" onclick="app.startUpload()">开始上传</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 引入压缩库 -->
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- 核心逻辑 -->
+    <script src="app.js"></script>
+</body>
+</html>
