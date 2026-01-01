@@ -2,43 +2,40 @@ const API_URL = "/.netlify/functions/api";
 
 const app = {
     passcode: localStorage.getItem('r2_passcode') || '',
-    files: [],       // 所有文件数据（扁平）
-    currentPath: '', // 当前浏览的相对路径，例如 "travel/"，根目录为 ""
+    userRoot: '',    
+    files: [],       
+    currentPath: '', 
     selectedKeys: new Set(),
 
-init: () => {
+    init: () => {
         if (app.passcode) {
             app.login(true);
         } else {
             document.getElementById('login-interface').style.display = 'block';
         }
         
-        // --- 压缩模式切换监听 ---
+        // 监听压缩模式 UI
         const desc = document.getElementById('compress-desc');
         const pngPanel = document.getElementById('png-settings-panel');
-        
         document.querySelectorAll('input[name="compressMode"]').forEach(radio => {
             radio.addEventListener('change', (e) => {
                 const val = e.target.value;
-                // 控制滑块面板显示
                 if (val === 'png') {
-                    pngPanel.classList.remove('d-none');
-                    desc.innerText = '🔍 PNG模式：保持背景透明，请下方调节尺寸。';
+                    pngPanel?.classList.remove('d-none');
+                    if(desc) desc.innerText = '🔍 PNG模式：保持背景透明，请下方调节尺寸。';
                 } else {
-                    pngPanel.classList.add('d-none');
+                    pngPanel?.classList.add('d-none');
                 }
-
-                if(val === 'chat') desc.innerText = '✨ WebP模式：适合大多数图片，体积极小。';
-                if(val === 'hd') desc.innerText = '📸 原图模式：不做任何处理。视频/GIF 必须选此项 (限制 4.5MB)。';
+                if(val === 'chat' && desc) desc.innerText = '✨ WebP模式：适合大多数图片，体积极小。';
+                if(val === 'hd' && desc) desc.innerText = '📸 原图模式：不做任何处理。视频/GIF 必须选此项。';
             });
         });
 
-        // --- 滑块数值实时显示 ---
         const slider = document.getElementById('png-width-slider');
         const display = document.getElementById('png-width-display');
-        slider.addEventListener('input', (e) => {
-            display.innerText = e.target.value + ' px';
-        });
+        if(slider && display) {
+            slider.addEventListener('input', (e) => display.innerText = e.target.value + ' px');
+        }
     },
 
     login: async (isAuto = false) => {
@@ -47,10 +44,10 @@ init: () => {
         
         app.passcode = input;
         const btn = document.querySelector('#login-interface button');
-        if(!isAuto) { btn.innerText = "验证中..."; btn.disabled = true; }
+        if(!isAuto && btn) { btn.innerText = "验证中..."; btn.disabled = true; }
 
         try {
-            await app.loadGallery(); // 尝试拉取数据验证
+            await app.loadGallery(); 
             localStorage.setItem('r2_passcode', input);
             document.getElementById('login-interface').style.display = 'none';
             document.getElementById('app-interface').style.display = 'block';
@@ -60,7 +57,7 @@ init: () => {
             if(!isAuto) alert('口令错误或网络异常');
             app.passcode = '';
         } finally {
-            if(!isAuto) { btn.innerText = "进入系统"; btn.disabled = false; }
+            if(!isAuto && btn) { btn.innerText = "进入系统"; btn.disabled = false; }
         }
     },
 
@@ -81,40 +78,102 @@ init: () => {
         return res.json();
     },
 
-    // 加载数据
     loadGallery: async () => {
         const data = await app.request('list', 'POST');
-        // 按时间倒序
+        app.userRoot = data.userRoot; // 核心：获取准确根路径
         app.files = data.files.sort((a, b) => new Date(b.lastModified) - new Date(a.lastModified));
         
         document.getElementById('file-count').innerText = app.files.length;
         document.getElementById('storage-used').innerText = (data.totalSize / 1024 / 1024).toFixed(2) + ' MB';
         
-        app.renderView(); // 渲染当前路径视图
+        app.updateFolderList(); // 更新上传框的目录列表
+        app.renderView(); 
     },
 
-    // 格式化文件大小
+    // 【新增功能】扫描所有文件，提取存在的目录，填充到下拉框
+    updateFolderList: () => {
+        const select = document.getElementById('upload-folder-select');
+        if(!select) return;
+
+        // 保留当前选中的值（如果有）
+        const currentVal = select.value;
+        
+        // 清空列表，只留根目录
+        select.innerHTML = '<option value="">(根目录)</option>';
+        
+        const knownPaths = new Set();
+        
+        app.files.forEach(file => {
+            if (!file.key.startsWith(app.userRoot)) return;
+            // 提取相对路径 "travel/2023/img.jpg"
+            const rel = file.key.substring(app.userRoot.length);
+            // 提取目录部分 "travel/2023/"
+            const lastSlash = rel.lastIndexOf('/');
+            if (lastSlash > -1) {
+                const dir = rel.substring(0, lastSlash + 1); // 包含结尾斜杠
+                knownPaths.add(dir);
+            }
+        });
+
+        // 排序并添加到下拉框
+        Array.from(knownPaths).sort().forEach(dir => {
+            const opt = document.createElement('option');
+            opt.value = dir;
+            opt.innerText = dir;
+            select.appendChild(opt);
+        });
+
+        // 如果之前新建的目录还没文件（临时添加的），也要保留在选项里
+        // 这里简单处理：如果当前在某目录，默认选中该目录
+        if (app.currentPath && Array.from(select.options).some(o => o.value === app.currentPath)) {
+            select.value = app.currentPath;
+        } else if (currentVal && Array.from(select.options).some(o => o.value === currentVal)) {
+            select.value = currentVal;
+        }
+    },
+
+    createNewFolder: () => {
+        const name = prompt("请输入新文件夹名称 (例如 travel):");
+        if(name && /^[a-zA-Z0-9_-]+$/.test(name)){
+            // 用户输入 "travel"，我们存为 "travel/"
+            // 如果已经在 "work/" 目录下建，就是 "work/travel/" 吗？
+            // 为了简单，我们只支持在【当前选择的目录】下建子目录，或者直接在根目录建。
+            // 这里为了最简化交互：直接在【根目录】下建（或者手动输入路径）。
+            
+            // 让我们做得智能点：基于当前选中的目录追加
+            const select = document.getElementById('upload-folder-select');
+            const parent = select.value; // "" 或 "abc/"
+            const newDir = parent + name + '/';
+
+            // 临时添加到下拉框并选中
+            const opt = document.createElement('option');
+            opt.value = newDir;
+            opt.innerText = newDir + " (新)";
+            select.appendChild(opt);
+            select.value = newDir;
+
+            alert(`已选中新目录 "${newDir}"。\n请上传一张图片以永久保存此目录。`);
+        } else if (name) {
+            alert("名称格式不正确");
+        }
+    },
+
     formatSize: (bytes) => {
         if (bytes < 1024) return bytes + ' B';
         if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
         return (bytes / 1024 / 1024).toFixed(1) + ' MB';
     },
 
-    // 进入文件夹
     enterFolder: (folderName) => {
         app.currentPath += folderName + '/';
         app.renderView();
     },
 
-    // 返回上一级
-    goUp: () => {
-        const parts = app.currentPath.split('/').filter(p => p);
-        parts.pop(); // 移除最后一级
-        app.currentPath = parts.length > 0 ? parts.join('/') + '/' : '';
+    goToRoot: () => {
+        app.currentPath = '';
         app.renderView();
     },
 
-    // 渲染主视图 (核心逻辑：区分文件和文件夹)
     renderView: () => {
         const container = document.getElementById('gallery-container');
         container.innerHTML = '';
@@ -122,109 +181,36 @@ init: () => {
         app.updateActionButtons();
         app.renderBreadcrumb();
 
-        // 1. 找出当前路径下的直接子文件和子文件夹
         const subFolders = new Set();
         const subFiles = [];
+        const fullPrefix = app.userRoot + app.currentPath;
 
         app.files.forEach(file => {
-            // 获取相对于当前路径的文件名
-            // 比如 userRoot/travel/2023/a.jpg, currentPath = "travel/"
-            // relative = "2023/a.jpg"
-            if (!file.key.includes(app.currentPath)) return; // 不在当前路径下
-
-            // 截取掉当前路径前缀
-            // 注意：API 返回的 key 包含了 userRoot，我们需要处理一下相对逻辑
-            // 简单起见，我们在 api.js 里是返回完整 key。
-            // 假设 key 是 "share/user/travel/a.jpg"，但前端只知道 currentPath="travel/"
-            // 这里我们需要一个技巧：后端能否返回相对路径？
-            // 修正：前端 app.files 里的 key 是 "share/user/travel/a.jpg"
-            // 我们并不知道 "share/user/" 是多少，但我们可以通过“是否包含 currentPath”来判断
-            
-            // 更好的方式：我们在 api.js 返回 files 时，顺便把 userRoot 返回给前端，或者前端不需要知道 root。
-            // 方案：我们只看 app.files 里的 key。
-            // 只要 key 包含 currentPath (除了 root 部分)。
-            // 这里的逻辑有点复杂，为了简单，我们假设 app.files 里的 key 已经是相对路径了？
-            // 不，api.js 返回的是完整 Key。
-            
-            // 重新设计：我们利用一个特性，ListObjects 返回的 key 一定是以 userRoot 开头的。
-            // 但是前端不知道 userRoot。
-            // 临时方案：我们取第一个文件的路径作为基准推断 root，或者让 API 返回 root。
-            // 为了不改 API，我们假设 currentPath 是匹配 Key 的一部分。
-            
-            // 修正逻辑：Folder View 需要更精确。
-            // 让我们简化：只根据 "/" 分割。
-            // 比如 A/B/C.jpg。如果当前在 A/，那 B 就是文件夹。
-            // 为了让这个能工作，我们必须知道 UserRoot 到底多长。
-            // 我们修改一下逻辑：以 files[0] 为例，倒推根目录？不靠谱。
-            
-            // *最稳妥修改*：请在 api.js 的 list 接口返回 userRoot。
-            // 但为了你不改 api.js，我这里用前端“猜测”法。
-            // 只要 file.key 包含了 app.currentPath... 等等， currentPath 是相对的。
-            // 让我们在前端存储里记录一下 userRoot。
-            // 其实，我们可以让 app.currentPath 存储“相对 UserRoot 的路径”。
-            // 显示时，我们截取掉 file.key 前面的 userRoot 部分。
-            
-            const relativeKey = file.key.substring(file.key.indexOf(app.currentPath)); 
-            // 哎呀，如果 userRoot 是 "share/bob/", currentPath 是 "travel/"
-            // key 是 "share/bob/travel/pic.jpg"
-            // 我们怎么知道 share/bob/ 是前缀？
-            
-            // **必杀技**：我们在 list 接口的数据里，其实 files[0].key 包含了完整路径。
-            // 我们可以利用 "文件夹自动识别"。
-            // 让我们假设所有的文件都属于这个用户，那么他们的共同前缀就是 Root。
-        });
-        
-        // --- 修正逻辑开始 ---
-        // 为了实现文件夹，我们需要先算出 UserRoot (公共前缀)
-        if (app.files.length > 0 && !app.userRoot) {
-            const firstKey = app.files[0].key; // "share/user/a.jpg"
-            // 简单粗暴：所有文件的公共长前缀
-            let common = firstKey;
-            app.files.forEach(f => {
-                let i = 0;
-                while(i < common.length && i < f.key.length && common[i] === f.key[i]) i++;
-                common = common.substring(0, i);
-            });
-            // 确保以 / 结尾
-            if (!common.endsWith('/')) common = common.substring(0, common.lastIndexOf('/') + 1);
-            app.userRoot = common; 
-        }
-        
-        const root = app.userRoot || '';
-        const fullCurrentPath = root + app.currentPath;
-
-        app.files.forEach(file => {
-            if (!file.key.startsWith(fullCurrentPath)) return;
-
-            const relativePart = file.key.substring(fullCurrentPath.length);
+            if (!file.key.startsWith(fullPrefix)) return;
+            const relativePart = file.key.substring(fullPrefix.length);
             const slashIndex = relativePart.indexOf('/');
-
+            
             if (slashIndex > -1) {
-                // 是子文件夹
                 subFolders.add(relativePart.substring(0, slashIndex));
             } else {
-                // 是文件
-                subFiles.push(file);
+                if (relativePart.length > 0) subFiles.push(file);
             }
         });
-        // --- 修正逻辑结束 ---
 
-        // 2. 渲染文件夹
         Array.from(subFolders).sort().forEach(folder => {
             const col = document.createElement('div');
             col.className = 'col-6 col-md-4 col-lg-3';
             col.innerHTML = `
-                <div class="card gallery-card p-2" onclick="app.enterFolder('${folder}')">
-                    <div class="gallery-item d-flex align-items-center justify-content-center bg-light">
-                        <i class="bi bi-folder-fill folder-icon"></i>
+                <div class="card gallery-card p-2 h-100" onclick="app.enterFolder('${folder}')">
+                    <div class="gallery-item d-flex align-items-center justify-content-center bg-light border-0">
+                        <i class="bi bi-folder-fill folder-icon text-warning" style="font-size: 4rem;"></i>
                     </div>
-                    <div class="mt-2 text-center text-truncate small fw-bold">${folder}</div>
+                    <div class="mt-2 text-center text-truncate fw-bold">${folder}</div>
                 </div>
             `;
             container.appendChild(col);
         });
 
-        // 3. 渲染文件
         subFiles.forEach(file => {
             const isVideo = file.key.toLowerCase().endsWith('.mp4');
             const name = file.key.split('/').pop();
@@ -233,22 +219,17 @@ init: () => {
             const col = document.createElement('div');
             col.className = 'col-6 col-md-4 col-lg-3';
             
-            // 构建内容
-            let mediaContent = '';
-            if (isVideo) {
-                mediaContent = `<video src="${file.url}" preload="metadata" muted></video>
-                                <div class="video-badge">VIDEO</div>`;
-            } else {
-                mediaContent = `<img src="${file.url}" loading="lazy">`;
-            }
+            let mediaContent = isVideo 
+                ? `<div class="bg-dark d-flex align-items-center justify-content-center h-100"><i class="bi bi-camera-video-fill text-white fs-1"></i></div><div class="video-badge">VIDEO</div>`
+                : `<img src="${file.url}" loading="lazy">`;
 
             col.innerHTML = `
-                <div class="card gallery-card p-2" onclick="app.toggleSelect(this, '${file.key}', '${file.url}')">
-                    <div class="gallery-item">
+                <div class="card gallery-card p-2 h-100" onclick="app.toggleSelect(this, '${file.key}', '${file.url}')">
+                    <div class="gallery-item position-relative">
                         ${mediaContent}
-                        <div class="file-info">
-                            <span class="text-truncate" style="max-width: 70%">${name}</span>
-                            <span>${sizeStr}</span>
+                        <div class="file-info w-100 px-2 py-1 d-flex justify-content-between">
+                            <span class="text-truncate" style="max-width: 60%">${name}</span>
+                            <span class="small">${sizeStr}</span>
                         </div>
                     </div>
                 </div>
@@ -256,45 +237,23 @@ init: () => {
             container.appendChild(col);
         });
 
-        // 若空
         if (subFolders.size === 0 && subFiles.length === 0) {
-            container.innerHTML = '<div class="col-12 text-center text-muted py-5">此文件夹为空</div>';
+            container.innerHTML = `<div class="col-12 text-center text-muted py-5"><i class="bi bi-inbox fs-1 d-block mb-3"></i>当前目录为空</div>`;
         }
-
-        // 更新上传框显示的路径
-        document.getElementById('upload-path-display').value = app.currentPath || '(根目录)';
-        document.getElementById('upload-folder-val').value = app.currentPath;
     },
 
     renderBreadcrumb: () => {
         const bc = document.getElementById('folder-breadcrumb');
-        let html = `<li class="breadcrumb-item"><a href="#" onclick="app.goToRoot(); return false;">根目录</a></li>`;
-        
+        let html = `<li class="breadcrumb-item"><a href="#" onclick="app.goToRoot(); return false;" class="text-decoration-none">根目录</a></li>`;
         if (app.currentPath) {
-            const parts = app.currentPath.split('/').filter(p => p);
-            let buildPath = '';
-            parts.forEach((p, index) => {
-                buildPath += p + '/';
-                if (index === parts.length - 1) {
-                    html += `<li class="breadcrumb-item active">${p}</li>`;
-                } else {
-                    // 这里由于闭包问题，简单处理
-                    html += `<li class="breadcrumb-item text-muted">${p}</li>`; 
-                }
+            app.currentPath.split('/').filter(p => p).forEach(p => {
+                html += `<li class="breadcrumb-item active">${p}</li>`;
             });
         }
         bc.innerHTML = html;
     },
 
-    goToRoot: () => {
-        app.currentPath = '';
-        app.renderView();
-    },
-
     toggleSelect: (card, key, url) => {
-        // 如果是视频，点击不要直接选中，而是可以播放？
-        // 为了简单，我们依然保持选中逻辑，点击图片/视频区域选中
-        // 如果想看大图/播放，可以用 "复制链接" 并在新窗口打开
         if (app.selectedKeys.has(key)) {
             app.selectedKeys.delete(key);
             card.classList.remove('selected-card');
@@ -308,30 +267,27 @@ init: () => {
 
     updateActionButtons: () => {
         const hasSel = app.selectedKeys.size > 0;
-        document.getElementById('btn-copy').disabled = !hasSel;
-        document.getElementById('btn-delete').disabled = !hasSel;
-        document.getElementById('btn-copy').innerText = hasSel ? `复制链接 (${app.selectedKeys.size})` : '复制链接';
-    },
-
-    createNewFolder: () => {
-        const name = prompt("请输入子文件夹名称 (仅字母数字):");
-        if(name && /^[a-zA-Z0-9_-]+$/.test(name)){
-            app.currentPath += name + '/';
-            app.renderView();
-        } else if (name) {
-            alert("格式不正确");
+        const btnCopy = document.getElementById('btn-copy');
+        const btnDel = document.getElementById('btn-delete');
+        if(btnCopy) {
+            btnCopy.disabled = !hasSel;
+            btnCopy.innerText = hasSel ? `复制链接 (${app.selectedKeys.size})` : '复制链接';
         }
+        if(btnDel) btnDel.disabled = !hasSel;
     },
 
-   startUpload: async () => {
+    startUpload: async () => {
         const files = document.getElementById('file-input').files;
         if (files.length === 0) return alert('请选择文件');
 
-        const currentFolder = document.getElementById('upload-folder-val').value;
-        const mode = document.querySelector('input[name="compressMode"]:checked').value;
-        
-        // 获取滑块的值
-        const pngMaxWidth = parseInt(document.getElementById('png-width-slider').value);
+        // 👇 这里改了：获取下拉框的值，而不是隐藏域的值
+        const select = document.getElementById('upload-folder-select');
+        const currentFolder = select.value; 
+
+        const modeInput = document.querySelector('input[name="compressMode"]:checked');
+        const mode = modeInput ? modeInput.value : 'chat';
+        const slider = document.getElementById('png-width-slider');
+        const pngMaxWidth = slider ? parseInt(slider.value) : 150;
 
         const progressContainer = document.getElementById('upload-progress-container');
         const progressBar = document.getElementById('upload-bar');
@@ -345,7 +301,7 @@ init: () => {
             progressBar.style.width = `${((i)/files.length)*100}%`;
 
             if (file.size > 4.5 * 1024 * 1024) {
-                alert(`文件 ${file.name} 超过 4.5MB，已跳过。`);
+                alert(`文件 ${file.name} 超过 4.5MB，Netlify 限制无法上传。已跳过。`);
                 continue;
             }
 
@@ -355,9 +311,7 @@ init: () => {
                 const isVideo = file.type.startsWith('video');
                 const isGif = file.type === 'image/gif';
 
-                // --- 核心处理逻辑 ---
                 if (!isVideo && !isGif) {
-                    // 1. WebP 模式
                     if (mode === 'chat') {
                         processedFile = await imageCompression(file, {
                             maxSizeMB: 1,
@@ -366,21 +320,16 @@ init: () => {
                             fileType: 'image/webp'
                         });
                         filename = filename.replace(/\.[^/.]+$/, "") + ".webp";
-                    } 
-                    // 2. PNG 自定义缩放模式 (新增)
-                    else if (mode === 'png') {
-                        console.log('正在转换PNG, 目标宽度:', pngMaxWidth);
+                    } else if (mode === 'png') {
                         processedFile = await imageCompression(file, {
-                            maxWidthOrHeight: pngMaxWidth, // 使用滑块的值
+                            maxWidthOrHeight: pngMaxWidth,
                             useWebWorker: true,
-                            fileType: 'image/png', // 强制保持 PNG (含透明)
-                            initialQuality: 0.9    // 保持较高质量
+                            fileType: 'image/png',
+                            initialQuality: 0.9
                         });
-                        // 确保扩展名是 png
                         filename = filename.replace(/\.[^/.]+$/, "") + ".png";
                     }
                 }
-                // mode === 'hd' 则不处理，直接上传原文件
 
                 const base64Data = await app.fileToBase64(processedFile);
 
@@ -399,9 +348,11 @@ init: () => {
 
         progressBar.style.width = '100%';
         setTimeout(() => {
-            bootstrap.Modal.getInstance(document.getElementById('uploadModal')).hide();
+            const modalEl = document.getElementById('uploadModal');
+            const modal = bootstrap.Modal.getInstance(modalEl);
+            if(modal) modal.hide();
             progressContainer.classList.add('d-none');
-            app.loadGallery();
+            app.loadGallery(); // 这里会自动刷新列表和目录下拉框
         }, 800);
     },
 
@@ -412,7 +363,7 @@ init: () => {
         reader.onerror = j;
     }),
 
-    deleteSelected: async () => { /* 保持原样 */
+    deleteSelected: async () => {
         if(!confirm(`确定删除这 ${app.selectedKeys.size} 个项目吗？`)) return;
         try {
             await app.request('delete', 'POST', { keys: Array.from(app.selectedKeys) });
@@ -420,10 +371,12 @@ init: () => {
         } catch (e) { alert('删除失败'); }
     },
     
-    copySelectedLinks: () => { /* 保持原样 */
+    copySelectedLinks: () => {
         const urls = [];
         document.querySelectorAll('.selected-card').forEach(el => urls.push(el.dataset.url));
-        navigator.clipboard.writeText(urls.join('\n')).then(() => alert('链接已复制'));
+        if(urls.length > 0) {
+            navigator.clipboard.writeText(urls.join('\n')).then(() => alert('链接已复制'));
+        }
     }
 };
 

@@ -85,14 +85,17 @@
                 </div>
                 <div class="modal-body">
                     <!-- 目录选择 (自动同步当前目录) -->
+<!-- 目录选择 (自动列出所有已存在的文件夹) -->
                     <div class="mb-3">
                         <label class="form-label">上传位置</label>
                         <div class="input-group">
                             <span class="input-group-text">📂</span>
-                            <input type="text" class="form-control" id="upload-path-display" readonly>
-                            <button class="btn btn-outline-secondary" type="button" onclick="app.createNewFolder()">+ 新建子目录</button>
+                            <!-- 👇 这里改成了 select -->
+                            <select class="form-select" id="upload-folder-select">
+                                <option value="">(根目录)</option>
+                            </select>
+                            <button class="btn btn-outline-secondary" type="button" onclick="app.createNewFolder()">+ 新建</button>
                         </div>
-                        <input type="hidden" id="upload-folder-val">
                     </div>
 
 <!-- 压缩模式选择 -->
