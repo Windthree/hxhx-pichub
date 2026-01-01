@@ -82,9 +82,10 @@ exports.handler = async (event, context) => {
         }
       });
 
-      return {
+return {
         statusCode: 200,
-        body: JSON.stringify({ files, totalSize, folders: Array.from(folders) })
+        // 👇 重点是加了 userRoot: userRoot
+        body: JSON.stringify({ files, totalSize, userRoot: userRoot }) 
       };
     }
 
