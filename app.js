@@ -294,7 +294,6 @@ const app = {
         const files = document.getElementById('file-input').files;
         if (files.length === 0) return alert('请选择文件');
 
-        // 👇 这里改了：获取下拉框的值，而不是隐藏域的值
         const select = document.getElementById('upload-folder-select');
         const currentFolder = select.value; 
 
@@ -314,10 +313,8 @@ const app = {
             currentFileSpan.innerText = `${file.name}`;
             progressBar.style.width = `${((i)/files.length)*100}%`;
 
-            if (file.size > 4.5 * 1024 * 1024) {
-                alert(`文件 ${file.name} 超过 4.5MB，Netlify 限制无法上传。已跳过。`);
-                continue;
-            }
+            // 【解除 4.5MB 限制】现在直传了，只要你 Cloudflare 没限制，传 100MB 都行
+            // 不过为了体验，我们还是建议视频不要太大，但这里代码不再拦截
 
             try {
                 let processedFile = file;
@@ -325,6 +322,7 @@ const app = {
                 const isVideo = file.type.startsWith('video');
                 const isGif = file.type === 'image/gif';
 
+                // 压缩逻辑保持不变
                 if (!isVideo && !isGif) {
                     if (mode === 'chat') {
                         processedFile = await imageCompression(file, {
@@ -345,13 +343,24 @@ const app = {
                     }
                 }
 
-                const base64Data = await app.fileToBase64(processedFile);
-
-                await app.request('upload', 'POST', {
+                // 【核心改动：两步走上传】
+                
+                // 1. 找 Netlify 要“通行证” (URL)
+                // 这里只传元数据，不传文件内容，极快，不耗流量
+                const signData = await app.request('get_upload_url', 'POST', {
                     filename: filename,
                     folder: currentFolder,
-                    fileData: base64Data,
-                    contentType: processedFile.type
+                    contentType: processedFile.type // 关键：告诉后端我要传什么类型
+                });
+
+                // 2. 浏览器拿着通行证，直接把文件扔给 Cloudflare R2
+                // 这一步完全绕过 Netlify
+                await fetch(signData.uploadUrl, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': processedFile.type 
+                    },
+                    body: processedFile
                 });
 
             } catch (e) {
@@ -366,7 +375,7 @@ const app = {
             const modal = bootstrap.Modal.getInstance(modalEl);
             if(modal) modal.hide();
             progressContainer.classList.add('d-none');
-            app.loadGallery(); // 这里会自动刷新列表和目录下拉框
+            app.loadGallery(); 
         }, 800);
     },
 
