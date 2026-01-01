@@ -3,24 +3,26 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>私有图床管理</title>
-    <!-- Bootstrap 5 CSS -->
+    <title>私有图床管理 Pro</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <!-- 图标库 -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.0/font/bootstrap-icons.css">
     <style>
-        .gallery-img { width: 100%; height: 150px; object-fit: cover; cursor: pointer; border-radius: 8px; }
-        .gallery-card { transition: transform 0.2s; position: relative; }
+        .gallery-item { height: 160px; cursor: pointer; border-radius: 8px; position: relative; overflow: hidden; border: 1px solid #dee2e6; background: #fff; }
+        .gallery-item img, .gallery-item video { width: 100%; height: 100%; object-fit: cover; }
+        .folder-icon { font-size: 4rem; color: #ffca2c; display: flex; align-items: center; justify-content: center; height: 100%; }
+        .file-info { position: absolute; bottom: 0; left: 0; right: 0; background: rgba(0,0,0,0.6); color: white; padding: 4px 8px; font-size: 12px; display: flex; justify-content: space-between; }
+        .gallery-card { transition: transform 0.2s; }
         .gallery-card:hover { transform: translateY(-5px); box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
         .selected-card { border: 3px solid #0d6efd; }
         .auth-container { max-width: 400px; margin: 100px auto; }
         #app-interface { display: none; }
-        .stats-box { background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; }
+        /* 视频标识 */
+        .video-badge { position: absolute; top: 5px; right: 5px; background: rgba(0,0,0,0.5); color: #fff; border-radius: 4px; padding: 2px 6px; font-size: 10px; }
     </style>
 </head>
 <body class="bg-light">
 
-    <!-- 登录界面 -->
+    <!-- 登录界面 (保持不变) -->
     <div id="login-interface" class="container auth-container">
         <div class="card shadow">
             <div class="card-body p-5">
@@ -35,44 +37,41 @@
 
     <!-- 主界面 -->
     <div id="app-interface" class="container py-4">
-        <!-- 头部导航 -->
-        <div class="d-flex justify-content-between align-items-center mb-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
             <h4>📸 图床管理 <span class="badge bg-secondary fs-6" id="user-badge"></span></h4>
-            <button onclick="app.logout()" class="btn btn-outline-danger btn-sm">退出</button>
+            <div>
+                <button class="btn btn-primary btn-sm me-2" data-bs-toggle="modal" data-bs-target="#uploadModal">
+                    <i class="bi bi-cloud-upload"></i> 上传资源
+                </button>
+                <button onclick="app.logout()" class="btn btn-outline-danger btn-sm">退出</button>
+            </div>
         </div>
 
-        <!-- 统计面板 -->
-        <div class="row mb-4">
-            <div class="col-md-12">
-                <div class="stats-box d-flex justify-content-between align-items-center">
-                    <div>
-                        <strong>存储用量：</strong> <span id="storage-used">计算中...</span>
-                    </div>
-                    <div>
-                        <strong>文件数：</strong> <span id="file-count">0</span>
-                    </div>
-                    <button class="btn btn-primary btn-sm" data-bs-toggle="modal" data-bs-target="#uploadModal">
-                        <i class="bi bi-cloud-upload"></i> 上传图片
-                    </button>
+        <!-- 统计与工具栏 -->
+        <div class="card mb-3">
+            <div class="card-body py-2 d-flex justify-content-between align-items-center flex-wrap gap-2">
+                <div>
+                    <span class="me-3">💾 已用: <strong id="storage-used">0 MB</strong></span>
+                    <span>📃 文件: <strong id="file-count">0</strong></span>
+                </div>
+                <div class="btn-group">
+                    <button class="btn btn-outline-secondary btn-sm" onclick="app.loadGallery()">刷新</button>
+                    <button class="btn btn-outline-primary btn-sm" onclick="app.copySelectedLinks()" id="btn-copy" disabled>复制链接</button>
+                    <button class="btn btn-outline-danger btn-sm" onclick="app.deleteSelected()" id="btn-delete" disabled>删除选中</button>
                 </div>
             </div>
         </div>
 
-        <!-- 工具栏 -->
-        <div class="d-flex gap-2 mb-3">
-            <button class="btn btn-outline-secondary btn-sm" onclick="app.loadGallery()">刷新列表</button>
-            <button class="btn btn-outline-primary btn-sm" onclick="app.copySelectedLinks()" id="btn-copy" disabled>复制链接</button>
-            <button class="btn btn-outline-danger btn-sm" onclick="app.deleteSelected()" id="btn-delete" disabled>删除选中</button>
-            <div class="ms-auto">
-                <select id="filter-folder" class="form-select form-select-sm" onchange="app.filterGallery()">
-                    <option value="all">所有文件夹</option>
-                </select>
-            </div>
-        </div>
+        <!-- 面包屑导航 (新功能) -->
+        <nav aria-label="breadcrumb">
+            <ol class="breadcrumb bg-white p-2 rounded border" id="folder-breadcrumb">
+                <li class="breadcrumb-item active">根目录</li>
+            </ol>
+        </nav>
 
-        <!-- 图片画廊 -->
+        <!-- 画廊区域 -->
         <div class="row g-3" id="gallery-container">
-            <!-- 图片将在这里渲染 -->
+            <!-- 文件夹和图片渲染区 -->
         </div>
     </div>
 
@@ -81,62 +80,55 @@
         <div class="modal-dialog">
             <div class="modal-content">
                 <div class="modal-header">
-                    <h5 class="modal-title">上传图片</h5>
+                    <h5 class="modal-title">上传资源</h5>
                     <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
                 </div>
                 <div class="modal-body">
-                    <!-- 压缩模式选择 -->
+                    <!-- 目录选择 (自动同步当前目录) -->
+                    <div class="mb-3">
+                        <label class="form-label">上传位置</label>
+                        <div class="input-group">
+                            <span class="input-group-text">📂</span>
+                            <input type="text" class="form-control" id="upload-path-display" readonly>
+                            <button class="btn btn-outline-secondary" type="button" onclick="app.createNewFolder()">+ 新建子目录</button>
+                        </div>
+                        <input type="hidden" id="upload-folder-val">
+                    </div>
+
                     <div class="mb-3">
                         <label class="form-label">压缩模式</label>
                         <div class="btn-group w-100" role="group">
                             <input type="radio" class="btn-check" name="compressMode" id="mode1" value="chat" checked>
-                            <label class="btn btn-outline-primary" for="mode1">聊天卡 (WebP)</label>
-
-                            <input type="radio" class="btn-check" name="compressMode" id="mode2" value="icon">
-                            <label class="btn btn-outline-primary" for="mode2">小图标 (PNG)</label>
+                            <label class="btn btn-outline-primary" for="mode1">WebP (推荐)</label>
 
                             <input type="radio" class="btn-check" name="compressMode" id="mode3" value="hd">
-                            <label class="btn btn-outline-primary" for="mode3">原图 (HD)</label>
+                            <label class="btn btn-outline-primary" for="mode3">原图/GIF/视频</label>
                         </div>
-                        <div class="form-text text-muted mt-1" id="compress-desc">WebP格式，宽1200px，质量0.75</div>
+                        <div class="form-text text-muted mt-1 small" id="compress-desc">适合图片，自动转WebP。视频/GIF请选“原图”模式。</div>
                     </div>
 
-                    <!-- 目录选择 -->
                     <div class="mb-3">
-                        <label class="form-label">目标文件夹</label>
-                        <div class="input-group">
-                            <select class="form-select" id="upload-folder-select">
-                                <option value="">根目录</option>
-                            </select>
-                            <button class="btn btn-outline-secondary" type="button" onclick="app.createNewFolder()">新建</button>
-                        </div>
+                        <!-- 支持 mp4, gif -->
+                        <input class="form-control" type="file" id="file-input" multiple accept="image/*,video/mp4">
+                        <div class="form-text text-danger">⚠️ 单文件限制 4.5MB 以内 (Netlify 限制)</div>
                     </div>
 
-                    <!-- 文件选择 -->
-                    <div class="mb-3">
-                        <input class="form-control" type="file" id="file-input" multiple accept="image/*">
-                    </div>
-
-                    <!-- 进度条 -->
                     <div id="upload-progress-container" class="d-none">
-                        <p class="mb-1">正在处理并上传: <span id="current-upload-file"></span></p>
-                        <div class="progress">
+                        <p class="mb-1 small text-truncate">正在处理: <span id="current-upload-file"></span></p>
+                        <div class="progress" style="height: 10px;">
                             <div id="upload-bar" class="progress-bar progress-bar-striped progress-bar-animated" style="width: 0%"></div>
                         </div>
                     </div>
                 </div>
                 <div class="modal-footer">
-                    <button type="button" class="btn btn-primary" onclick="app.startUpload()">开始上传</button>
+                    <button type="button" class="btn btn-primary w-100" onclick="app.startUpload()">开始上传</button>
                 </div>
             </div>
         </div>
     </div>
 
-    <!-- 引入压缩库 -->
     <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/browser-image-compression@2.0.2/dist/browser-image-compression.js"></script>
-    <!-- Bootstrap JS -->
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <!-- 核心逻辑 -->
     <script src="app.js"></script>
 </body>
 </html>
