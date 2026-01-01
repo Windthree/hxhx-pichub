@@ -98,7 +98,10 @@ return {
 
       // 构建最终路径：用户根目录 + (可选子目录) + 文件名
       let targetKey = userRoot;
-      if (folder) targetKey += `${folder}/`;
+      // 如果前端传来的 folder 已经包含斜杠（如 "test/"），就不加了；否则加一个
+      if (folder) {
+          targetKey += folder.endsWith('/') ? folder : `${folder}/`;
+      }
       targetKey += filename;
 
       // 转换数据
