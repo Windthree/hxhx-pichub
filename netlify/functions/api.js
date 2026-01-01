@@ -1,7 +1,6 @@
 const { S3Client, ListObjectsV2Command, PutObjectCommand, DeleteObjectsCommand } = require("@aws-sdk/client-s3");
-const busboy = require("busboy");
+const { getSignedUrl } = require("@aws-sdk/s3-request-presigner");
 
-// 1. 初始化 R2 客户端
 const s3 = new S3Client({
   region: "auto",
   endpoint: process.env.R2_ENDPOINT,
@@ -12,11 +11,8 @@ const s3 = new S3Client({
 });
 
 const BUCKET_NAME = process.env.R2_BUCKET_NAME;
-const DOMAIN = process.env.R2_PUBLIC_DOMAIN; // 例如 https://pub.yourdomain.com
+const DOMAIN = process.env.R2_PUBLIC_DOMAIN;
 
-// 2. 简易用户鉴权配置 (口令 -> 目录映射)
-// 实际部署时，可以在 Netlify 环境变量中配置 USER_MAPPING，格式为 JSON 字符串
-// 默认回退值仅供测试
 const getUserRoot = (passcode) => {
   let mapping = {};
   try {
@@ -24,19 +20,14 @@ const getUserRoot = (passcode) => {
   } catch (e) {
     console.error("环境变量解析失败", e);
   }
-  
-  // 示例：如果口令是 "demo123"，目录是 "share/demo_user/"
-  // 如果找不到映射，返回 null
   return mapping[passcode] || null;
 };
 
 exports.handler = async (event, context) => {
-  // 仅允许 POST 请求
   if (event.httpMethod !== "POST") {
     return { statusCode: 405, body: "Method Not Allowed" };
   }
 
-  // 获取 Passcode
   const headers = event.headers;
   const passcode = headers["x-passcode"];
   const userRoot = getUserRoot(passcode);
@@ -46,85 +37,68 @@ exports.handler = async (event, context) => {
   }
 
   try {
-    // 解析请求动作
-    // 由于 Netlify 处理 multipart/form-data 比较麻烦，
-    // 我们这里让前端把动作放在 query 参数或者 header 里，或者根据 content-type 判断
-    // 为了简单，我们统一解析 JSON body 或者 base64 图片（上传时）
-    
     const action = event.queryStringParameters.action;
 
-    // --- 功能 1: 获取文件列表 (List) ---
+    // --- 功能 1: 获取列表 (List) ---
     if (action === "list") {
       const command = new ListObjectsV2Command({
         Bucket: BUCKET_NAME,
-        Prefix: userRoot // 强制限制在用户目录下
+        Prefix: userRoot
       });
       const data = await s3.send(command);
       
-      // 计算总存储量
       const objects = data.Contents || [];
       const totalSize = objects.reduce((acc, obj) => acc + obj.Size, 0);
       
-      // 格式化返回数据
       const files = objects.map(item => ({
         key: item.Key,
-        url: `${DOMAIN}/${item.Key}`,
+        url: `${DOMAIN}/${item.Key}`, // 这里直接返回 Cloudflare 的公开链接，不走 Netlify
         size: item.Size,
         lastModified: item.LastModified
       }));
 
-      // 提取所有子文件夹 (简单通过斜杠判断)
-      const folders = new Set();
-      files.forEach(f => {
-        const relativePath = f.key.replace(userRoot, "");
-        if (relativePath.includes("/")) {
-          folders.add(relativePath.split("/")[0]);
-        }
-      });
-
-return {
+      // 返回 userRoot 供前端使用
+      return {
         statusCode: 200,
-        // 👇 重点是加了 userRoot: userRoot
-        body: JSON.stringify({ files, totalSize, userRoot: userRoot }) 
+        body: JSON.stringify({ files, totalSize, userRoot })
       };
     }
 
-    // --- 功能 2: 上传文件 (Upload) ---
-    if (action === "upload") {
-      // 注意：Netlify Function Body 默认为 base64 (如果是二进制)
-      // 前端我们会发送 JSON: { filename: "a.jpg", folder: "sub", fileData: "base64..." }
+    // --- 功能 2: 获取上传预签名链接 (Get Upload URL) ---
+    // 【核心改动】后端只生成链接，不接文件
+    if (action === "get_upload_url") {
       const body = JSON.parse(event.body);
-      const { filename, folder, fileData, isBase64 } = body;
-
-      // 构建最终路径：用户根目录 + (可选子目录) + 文件名
+      const { filename, folder, contentType } = body;
+      
+      // 处理路径
       let targetKey = userRoot;
-      // 如果前端传来的 folder 已经包含斜杠（如 "test/"），就不加了；否则加一个
       if (folder) {
-          targetKey += folder.endsWith('/') ? folder : `${folder}/`;
+           targetKey += folder.endsWith('/') ? folder : `${folder}/`;
       }
       targetKey += filename;
 
-      // 转换数据
-      const buffer = Buffer.from(fileData, 'base64');
-
-      await s3.send(new PutObjectCommand({
+      // 生成一个有效期 60秒 的 PUT 链接
+      const command = new PutObjectCommand({
         Bucket: BUCKET_NAME,
         Key: targetKey,
-        Body: buffer,
-        ContentType: body.contentType || 'image/jpeg'
-      }));
+        ContentType: contentType, // 必须指定类型，否则浏览器直传会报错
+      });
+      
+      const uploadUrl = await getSignedUrl(s3, command, { expiresIn: 60 });
 
       return {
         statusCode: 200,
-        body: JSON.stringify({ success: true, url: `${DOMAIN}/${targetKey}` })
+        body: JSON.stringify({ 
+            uploadUrl, 
+            publicUrl: `${DOMAIN}/${targetKey}`,
+            key: targetKey
+        })
       };
     }
 
     // --- 功能 3: 删除文件 (Delete) ---
     if (action === "delete") {
-      const { keys } = JSON.parse(event.body); // keys 是相对路径或完整 Key 列表
-      
-      // 安全检查：确保所有要删除的 Key 都以 userRoot 开头
+      const { keys } = JSON.parse(event.body);
       const safeKeys = keys.filter(k => k.startsWith(userRoot)).map(k => ({ Key: k }));
 
       if (safeKeys.length > 0) {
@@ -136,7 +110,7 @@ return {
 
       return {
         statusCode: 200,
-        body: JSON.stringify({ success: true, count: safeKeys.length })
+        body: JSON.stringify({ success: true })
       };
     }
 
