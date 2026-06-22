@@ -226,16 +226,26 @@ const app = {
 
         // 渲染文件
         subFiles.forEach(file => {
-            const isVideo = file.key.toLowerCase().endsWith('.mp4');
-            const name = file.key.split('/').pop();
-            const sizeStr = app.formatSize(file.size);
-            
-            const col = document.createElement('div');
-            col.className = 'col-6 col-md-4 col-lg-3';
-            
-            let mediaContent = isVideo 
-                ? `<div class="bg-dark d-flex align-items-center justify-content-center h-100"><i class="bi bi-camera-video-fill text-white fs-1"></i></div><div class="video-badge">VIDEO</div>`
-                : `<img src="${file.url}" loading="lazy">`;
+    const isVideo = file.key.toLowerCase().match(/\.(mp4|mov|avi|webm)$/i);
+    const isImage = file.key.toLowerCase().match(/\.(jpg|jpeg|png|gif|webp|svg|heic)$/i);
+    const name = file.key.split('/').pop();
+    const sizeStr = app.formatSize(file.size);
+    
+    const col = document.createElement('div');
+    col.className = 'col-6 col-md-4 col-lg-3';
+    
+    let mediaContent;
+    if (isVideo) {
+        mediaContent = `<div class="bg-dark d-flex align-items-center justify-content-center h-100"><i class="bi bi-camera-video-fill text-white fs-1"></i></div><div class="video-badge">VIDEO</div>`;
+    } else if (isImage) {
+        mediaContent = `<img src="${file.url}" loading="lazy">`;
+    } else {
+        // 其他文件显示通用图标 (利用已引入的 bootstrap-icons)
+        mediaContent = `<div class="bg-white border-bottom d-flex flex-column align-items-center justify-content-center h-100">
+            <i class="bi bi-file-earmark-text text-secondary" style="font-size: 3rem;"></i>
+            <span class="small text-muted mt-2 px-1 text-truncate w-100 text-center">未知格式</span>
+        </div>`;
+    }
 
             col.innerHTML = `
                 <div class="card gallery-card p-2 h-100" onclick="app.toggleSelect(this, '${file.key}', '${file.url}')">
@@ -318,13 +328,14 @@ const app = {
 
             try {
                 let processedFile = file;
-                let filename = file.name;
-                const isVideo = file.type.startsWith('video');
-                const isGif = file.type === 'image/gif';
+let filename = file.name;
+const isVideo = file.type.startsWith('video');
+const isGif = file.type === 'image/gif';
+const isImage = file.type.startsWith('image/'); // 新增：判断是否为常规图片
 
                 // 压缩逻辑保持不变
-                if (!isVideo && !isGif) {
-                    if (mode === 'chat') {
+                if (isImage && !isGif) {
+    if (mode === 'chat') {
                         processedFile = await imageCompression(file, {
                             maxSizeMB: 1,
                             maxWidthOrHeight: 1200,
